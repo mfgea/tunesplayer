@@ -14,7 +14,6 @@
 
 #include "tones.h"
 #include <LiquidCrystal_I2C.h>
-#include <avr/pgmspace.h>
 
 const int tonePin = 9;  // for rEDI board
 const int selectPin = 8;
@@ -27,11 +26,13 @@ LiquidCrystal_I2C lcd(0x27, 16, 2);
 byte btn1State;
 byte btn2State;
 
-char const *songTitle;
+String songTitle;
 boolean playing;
 boolean refreshLCD;
 int selectedSong;
 int MAX_SONGS = 25;
+
+char song[512];
 
 void setup(void) {
   Serial.begin(9600);
@@ -47,16 +48,15 @@ void setup(void) {
 
   songTitle = " Themes player! ";
   refreshLCD = true;
-  Serial.println("initialize");
 }
 
 void draw() {
   if (refreshLCD) {
+    String buff = "";
     lcd.clear();
     lcd.setCursor(0, 0);
-    lcd.print(selectedSong);
-    lcd.print(" ");
-    lcd.println(songTitle);
+    buff += String(selectedSong) + ">" + songTitle + "                ";
+    lcd.println(buff.substring(0,16));
     lcd.setCursor(0, 1);
     if(playing) {
       lcd.println("<-Sel     Stop->");
@@ -73,9 +73,9 @@ void loop(void) {
     if(selectedSong > MAX_SONGS) {
       selectedSong = 0;
     }
-    char* song;
-    strcpy_P(song, (char*)pgm_read_word(&(songs[0]))); // Necessary casts and dereferencing, just copy. 
-    songTitle = "test"; //getSongTitle(song);
+    selectSong();
+    Serial.println(song);
+    songTitle = getSongTitle(song);
     refreshLCD = true;
     btn1State = LOW;
     Serial.print("selectedSong: ");
@@ -84,28 +84,26 @@ void loop(void) {
     Serial.println(songTitle);
   }
   if(btn2State == HIGH) {
-    playing = true;
+    if(playing) {
+      playing = false;
+    } else {
+      playing = true;
+      play_rtttl(song);
+    }
     btn2State = LOW;
     refreshLCD = true;
-    char* song;
-    strcpy_P(song, (char*)pgm_read_word(&(songs[0]))); // Necessary casts and dereferencing, just copy. 
-    Serial.println(song);
-    play_rtttl(song);
   }
   draw();
 }
 
-char const *getSongTitle(char const *p) {
-  char *sname;
-  int pos = 0;
-  // format: d=N,o=N,b=NNN:
-  // find the start (skip name, etc)
+void selectSong() {
+  strcpy_P(song, (char*)pgm_read_word(&(songs[selectedSong]))); // Necessary casts and dereferencing, just copy.
+}
 
-  while(*p != ':') {
-    sname[pos++] = *p;
-    p++;
-  };
-  return sname;
+String getSongTitle(char const *p) {
+  String sname = String(p);
+  sname = sname.substring(0, sname.indexOf(":"));
+  return sname.substring(0,14);
 }
 
 void pciSetup(byte pin) {
@@ -120,7 +118,7 @@ ISR(PCINT0_vect){
   static unsigned long last_interrupt_time = 0;
   unsigned long interrupt_time = millis();
   // If interrupts come faster than 200ms, assume it's a bounce and ignore
-  if (interrupt_time - last_interrupt_time > 200) {
+  if (interrupt_time - last_interrupt_time > 100) {
     btn1State = digitalRead(selectPin);
   }
   last_interrupt_time = interrupt_time;
@@ -129,7 +127,7 @@ ISR(PCINT2_vect){
   static unsigned long last_interrupt_time = 0;
   unsigned long interrupt_time = millis();
   // If interrupts come faster than 200ms, assume it's a bounce and ignore
-  if (interrupt_time - last_interrupt_time > 200) {
+  if (interrupt_time - last_interrupt_time > 100) {
     btn2State = digitalRead(playPin);
   }
   last_interrupt_time = interrupt_time;
